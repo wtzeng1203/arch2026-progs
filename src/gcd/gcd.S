@@ -20,41 +20,48 @@ gcd_u32_asm:
     # Zero operands; this also keeps the loops below from spinning on 0.
     beq     a0, x0, .Lret_b
     beq     a1, x0, .Lret
-    addi    t0, x0, 0
 
-    # Strip and count the twos that a and b share.
+    # Strip and count the twos that a and b share. Each loop below tests
+    # its condition at the bottom, so one branch both tests and repeats.
+    or      t0, a0, a1
+    andi    t0, t0, 1
+    bne     t0, x0, .Lno_shared
 .Lboth:
-    or      t1, a0, a1
-    andi    t1, t1, 1
-    bne     t1, x0, .Lodd_a
     srli    a0, a0, 1
     srli    a1, a1, 1
     addi    t0, t0, 1
-    jal     x0, .Lboth
+    or      t1, a0, a1
+    andi    t1, t1, 1
+    beq     t1, x0, .Lboth
 
     # Make a odd; it stays odd from here on.
-.Lodd_a:
     andi    t1, a0, 1
     bne     t1, x0, .Lodd_b
+.Lodd_a:
     srli    a0, a0, 1
-    jal     x0, .Lodd_a
+    andi    t1, a0, 1
+    beq     t1, x0, .Lodd_a
+    jal     x0, .Lodd_b
+
+    # b < a: replace (a, b) with (b, a - b) in one step. a - b is even and
+    # not zero, so this falls straight into making b odd.
+.Lswap:
+    sub     t2, a0, a1
+    addi    a0, a1, 0
+    addi    a1, t2, 0
 
     # Make b odd.
 .Lodd_b:
     andi    t1, a1, 1
     bne     t1, x0, .Lorder
+.Lhalve_b:
     srli    a1, a1, 1
-    jal     x0, .Lodd_b
-
-    # Keep b >= a so the difference cannot wrap around.
-.Lorder:
-    bgeu    a1, a0, .Lstep
-    addi    t2, a0, 0
-    addi    a0, a1, 0
-    addi    a1, t2, 0
+    andi    t1, a1, 1
+    beq     t1, x0, .Lhalve_b
 
     # Odd minus odd is even, so b is even or zero after this.
-.Lstep:
+.Lorder:
+    bltu    a1, a0, .Lswap
     sub     a1, a1, a0
     bne     a1, x0, .Lodd_b
 
@@ -62,6 +69,13 @@ gcd_u32_asm:
     sll     a0, a0, t0
 .Lret:
     jalr    x0, ra, 0
+
+    # No shared twos. If a is even, t0 is 0 already and doubles as shift.
+.Lno_shared:
+    andi    t0, a0, 1
+    beq     t0, x0, .Lodd_a
+    addi    t0, x0, 0
+    jal     x0, .Lodd_b
 .Lret_b:
     addi    a0, a1, 0
     jalr    x0, ra, 0
