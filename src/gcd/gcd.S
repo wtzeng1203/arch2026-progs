@@ -43,27 +43,32 @@ gcd_u32_asm:
     beq     t1, x0, .Lodd_a
     jal     x0, .Lodd_b
 
+    # Make b odd: an even b goes to the halving loop, an odd b goes
+    # straight to the subtraction.
+.Lodd_b:
+    andi    t1, a1, 1
+    beq     t1, x0, .Lhalve_b
+    jal     x0, .Lorder
+
     # b < a: replace (a, b) with (b, a - b) in one step. a - b is even and
-    # not zero, so this falls straight into making b odd.
+    # not zero, so this falls straight into halving b.
 .Lswap:
     sub     t2, a0, a1
     addi    a0, a1, 0
     addi    a1, t2, 0
 
-    # Make b odd.
-.Lodd_b:
-    andi    t1, a1, 1
-    bne     t1, x0, .Lorder
+    # Halve b until it is odd. b is always even here, so the loop needs
+    # no test before its first pass.
 .Lhalve_b:
     srli    a1, a1, 1
     andi    t1, a1, 1
     beq     t1, x0, .Lhalve_b
 
-    # Odd minus odd is even, so b is even or zero after this.
+    # Odd minus odd is even, so a nonzero b goes straight back to halving.
 .Lorder:
     bltu    a1, a0, .Lswap
     sub     a1, a1, a0
-    bne     a1, x0, .Lodd_b
+    bne     a1, x0, .Lhalve_b
 
     # Put the shared twos back; shift <= 31 because neither input is 0.
     sll     a0, a0, t0
