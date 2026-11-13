@@ -8,8 +8,8 @@
 # Only shifts, subtractions and comparisons are used: no multiply, no
 # divide, no remainder.
 #
-# Registers: a0 = a and the result, a1 = b, t0 = shift, t1 = parity test,
-# t2 = tmp for the swap.
+# Registers: a0 = a and the result, a1 = b, t0 = shift, t1 = parity test
+# and a | b, t2 = tmp for the swap and the bit search.
 
     .text
 
@@ -21,27 +21,38 @@ gcd_u32_asm:
     beq     a0, x0, .Lret_b
     beq     a1, x0, .Lret
 
-    # Strip and count the twos that a and b share. Each loop below tests
-    # its condition at the bottom, so one branch both tests and repeats.
-    or      t0, a0, a1
-    andi    t0, t0, 1
-    bne     t0, x0, .Lno_shared
-.Lboth:
-    srli    a0, a0, 1
-    srli    a1, a1, 1
-    addi    t0, t0, 1
+    # Shared twos are rare, so they are counted out of line at .Lshared.
     or      t1, a0, a1
-    andi    t1, t1, 1
-    beq     t1, x0, .Lboth
+    andi    t0, t1, 1
+    beq     t0, x0, .Lshared
+    addi    t0, x0, 0
 
-    # Make a odd; it stays odd from here on.
+    # Make a odd. An even a means b is odd, so strip all the twos of a
+    # with a binary search over the bit position, at most five steps,
+    # and go straight to the subtraction.
+.Lcheck_a:
     andi    t1, a0, 1
     bne     t1, x0, .Lodd_b
-.Lodd_a:
+    slli    t2, a0, 16
+    bne     t2, x0, .La8
+    srli    a0, a0, 16
+.La8:
+    slli    t2, a0, 24
+    bne     t2, x0, .La4
+    srli    a0, a0, 8
+.La4:
+    slli    t2, a0, 28
+    bne     t2, x0, .La2
+    srli    a0, a0, 4
+.La2:
+    slli    t2, a0, 30
+    bne     t2, x0, .La1
+    srli    a0, a0, 2
+.La1:
+    andi    t2, a0, 1
+    bne     t2, x0, .Lorder
     srli    a0, a0, 1
-    andi    t1, a0, 1
-    beq     t1, x0, .Lodd_a
-    jal     x0, .Lodd_b
+    jal     x0, .Lorder
 
     # Make b odd: an even b goes to the halving loop, an odd b goes
     # straight to the subtraction.
@@ -58,7 +69,8 @@ gcd_u32_asm:
     addi    a1, t2, 0
 
     # Halve b until it is odd. b is always even here, so the loop needs
-    # no test before its first pass.
+    # no test before its first pass. A difference of two odd numbers has
+    # few trailing zeros, so this loop is cheaper than a binary search.
 .Lhalve_b:
     srli    a1, a1, 1
     andi    t1, a1, 1
@@ -74,15 +86,39 @@ gcd_u32_asm:
     sll     a0, a0, t0
 .Lret:
     jalr    x0, ra, 0
-
-    # No shared twos. If a is even, t0 is 0 already and doubles as shift.
-.Lno_shared:
-    andi    t0, a0, 1
-    beq     t0, x0, .Lodd_a
-    addi    t0, x0, 0
-    jal     x0, .Lodd_b
 .Lret_b:
     addi    a0, a1, 0
     jalr    x0, ra, 0
+
+    # Strip and count the twos that a and b share: shift = ctz(a | b),
+    # found by the same binary search on t1 = a | b, which is even and
+    # not zero here. t0 is 0 on entry.
+.Lshared:
+    slli    t2, t1, 16
+    bne     t2, x0, .Ls8
+    srli    t1, t1, 16
+    addi    t0, t0, 16
+.Ls8:
+    slli    t2, t1, 24
+    bne     t2, x0, .Ls4
+    srli    t1, t1, 8
+    addi    t0, t0, 8
+.Ls4:
+    slli    t2, t1, 28
+    bne     t2, x0, .Ls2
+    srli    t1, t1, 4
+    addi    t0, t0, 4
+.Ls2:
+    slli    t2, t1, 30
+    bne     t2, x0, .Ls1
+    srli    t1, t1, 2
+    addi    t0, t0, 2
+.Ls1:
+    andi    t2, t1, 1
+    xori    t2, t2, 1
+    add     t0, t0, t2
+    srl     a0, a0, t0
+    srl     a1, a1, t0
+    jal     x0, .Lcheck_a
 
     .size   gcd_u32_asm, .-gcd_u32_asm
