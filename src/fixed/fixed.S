@@ -20,7 +20,8 @@
 
     .text
 
-# a + b by XOR and carries; the pass count stays in t1 and is stored once.
+# a + b by XOR and carries; the XOR uses b before the carry replaces it,
+# and the pass count stays in t1 and is stored once.
     .globl  op1_asm
     .type   op1_asm, @function
     .align  2
@@ -29,9 +30,8 @@ op1_asm:
 .Lop1_top:
     beq     a1, zero, .Lop1_done
     and     t0, a0, a1
-    slli    t0, t0, 1
     xor     a0, a0, a1
-    addi    a1, t0, 0
+    slli    a1, t0, 1
     addi    t1, t1, 1
     jal     x0, .Lop1_top
 .Lop1_done:
