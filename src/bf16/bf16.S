@@ -17,9 +17,8 @@
 #
 # bf16_sqrt_asm (leaf): a0 = a, a0 = result
 #   t0 = exponent field, then the halved exponent
-#   t1 = fraction, then the significand m
-#   t2 = scratch, then low; t3 = high; t4 = result; t5 = mid
-#   t6/a1 = multiplicand/multiplier, a2 = mid * mid, a3 = scratch
+#   t1 = fraction, then the significand m, then the remainder of N
+#   t2 = scratch, then the root; t3 = trial bit; t4 = root plus bit
 
     .text
 
@@ -177,6 +176,7 @@ bf16_mul_asm:
     .globl  bf16_sqrt_asm
     .type   bf16_sqrt_asm, @function
     .align  2
+
 bf16_sqrt_asm:
     # Split the operand and sort out the special classes in contract order.
     srli    t0, a0, 7
@@ -184,6 +184,7 @@ bf16_sqrt_asm:
     andi    t1, a0, 127
     addi    t2, x0, 255
     beq     t0, t2, .Lbf16_sqrt_asm_special
+
     # Zero comes before the sign test, so -0 gives +0.
     or      t2, t0, t1
     beq     t2, x0, .Lbf16_sqrt_asm_zero
@@ -201,41 +202,27 @@ bf16_sqrt_asm:
     addi    t0, t0, 127
     srli    t0, t0, 1
 
-    # Binary search over [90, 256] for the largest mid with
-    # (mid * mid) / 128 <= m.
-    addi    t2, x0, 90
-    addi    t3, x0, 256
-    addi    t4, x0, 128
+    # The largest mid with (mid * mid) / 128 <= m is the integer square
+    # root of N = 128 * (m + 1) - 1, found one bit at a time with no
+    # multiply. N < 2^16, so the first trial bit is 4^7 = 2^14.
+    slli    t1, t1, 7
+    addi    t1, t1, 127
+    addi    t2, x0, 0
+    lui     t3, 0x4
 .Lbf16_sqrt_asm_loop:
-    bltu    t3, t2, .Lbf16_sqrt_asm_done
-    add     t5, t2, t3
-    srli    t5, t5, 1
-    # mid * mid by shift-and-add.
-    addi    a2, x0, 0
-    addi    t6, t5, 0
-    addi    a1, t5, 0
-.Lbf16_sqrt_asm_mul_loop:
-    andi    a3, a1, 1
-    beq     a3, x0, .Lbf16_sqrt_asm_mul_skip
-    add     a2, a2, t6
-.Lbf16_sqrt_asm_mul_skip:
-    slli    t6, t6, 1
-    srli    a1, a1, 1
-    bne     a1, x0, .Lbf16_sqrt_asm_mul_loop
-    srli    a2, a2, 7
-    bltu    t1, a2, .Lbf16_sqrt_asm_high
-    addi    t4, t5, 0
-    addi    t2, t5, 1
-    jal     x0, .Lbf16_sqrt_asm_loop
-.Lbf16_sqrt_asm_high:
-    addi    t3, t5, -1
-    jal     x0, .Lbf16_sqrt_asm_loop
+    add     t4, t2, t3
+    srli    t2, t2, 1
+    bltu    t1, t4, .Lbf16_sqrt_asm_next
+    sub     t1, t1, t4
+    add     t2, t2, t3
+.Lbf16_sqrt_asm_next:
+    srli    t3, t3, 2
+    bne     t3, x0, .Lbf16_sqrt_asm_loop
 
-    # result lies in [128, 255] and the exponent in [64, 190]: just pack.
-.Lbf16_sqrt_asm_done:
-    andi    t4, t4, 127
+    # The root lies in [128, 255] and the exponent in [64, 190]: just pack.
+    andi    t2, t2, 127
     slli    t0, t0, 7
-    or      a0, t0, t4
+    or      a0, t0, t2
     jalr    x0, ra, 0
 
     # Exponent 0xFF: a NaN or +Inf is returned unchanged, -Inf gives NaN.
