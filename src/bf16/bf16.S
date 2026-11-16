@@ -8,7 +8,7 @@
 # instructions. Tests: tests/tbf16.c.
 #
 # bf16_from_f32_asm (leaf): a0 = input, then result
-#   t0 = exponent field, t1 = 255 and then bit 16, t2 = 0x7FFF
+#   t0 = top half h, t1 = bit 16 and then scratch, t2 = 0x7FFF then 0x7F80
 #
 # bf16_mul_asm (leaf): a0 = a, a1 = b, a0 = result
 #   t0 = sign at bit 15, t1/t2 = exponents (t1 becomes the result exponent),
@@ -26,25 +26,25 @@
     .globl  bf16_from_f32_asm
     .type   bf16_from_f32_asm, @function
     .align  2
-bf16_from_f32_asm:
-    # Inf and NaN (exponent field 0xFF) keep their top half unchanged.
-    srli    t0, a0, 23
-    andi    t0, t0, 255
-    addi    t1, x0, 255
-    beq     t0, t1, .Lbf16_from_f32_asm_special
 
-    # Round to nearest, ties to even: add 0x7FFF plus bit 16.
-    srli    t1, a0, 16
-    andi    t1, t1, 1
+bf16_from_f32_asm:
+    # Round first: add 0x7FFF plus bit 16 and keep the top half.
+    srli    t0, a0, 16
+    andi    t1, t0, 1
     lui     t2, 0x8
     addi    t2, t2, -1
     add     a0, a0, t2
     add     a0, a0, t1
     srli    a0, a0, 16
-    jalr    x0, ra, 0
-
-.Lbf16_from_f32_asm_special:
-    srli    a0, a0, 16
+    # Without a carry the result equals the top half, which is also the
+    # answer for Inf and NaN.
+    beq     a0, t0, .Lbf16_from_f32_asm_ret
+    # After a carry, an exponent field of 0xFF still returns the top half.
+    addi    t2, t2, -127
+    and     t1, t0, t2
+    bne     t1, t2, .Lbf16_from_f32_asm_ret
+    addi    a0, t0, 0
+.Lbf16_from_f32_asm_ret:
     jalr    x0, ra, 0
     .size   bf16_from_f32_asm, .-bf16_from_f32_asm
 
