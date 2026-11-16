@@ -12,8 +12,8 @@
 #
 # bf16_mul_asm (leaf): a0 = a, a1 = b, a0 = result
 #   t0 = sign at bit 15, t1/t2 = exponents (t1 becomes the result exponent),
-#   t3/t4 = significands, t2 = product once the exponents are summed,
-#   t5 = 255, t6 = scratch
+#   t3 = significand of a, t4 = fraction of b, t2 = product once the
+#   exponents are summed, t5 = 255, t6 = scratch
 #
 # bf16_sqrt_asm (leaf): a0 = a, a0 = result
 #   t0 = exponent field, then the halved exponent
@@ -87,25 +87,28 @@ bf16_mul_asm:
     ori     t3, t3, 128
 .Lbf16_mul_asm_a_done:
 
-    # Normalize b the same way.
-    bne     t2, x0, .Lbf16_mul_asm_b_normal
+    # b keeps only its seven fraction bits, since its leading one becomes a
+    # shift below. A denormal b is normalized first, then loses that one.
+    bne     t2, x0, .Lbf16_mul_asm_b_done
     addi    t2, x0, 1
 .Lbf16_mul_asm_b_shift:
     andi    t6, t4, 128
-    bne     t6, x0, .Lbf16_mul_asm_b_done
+    bne     t6, x0, .Lbf16_mul_asm_b_strip
     slli    t4, t4, 1
     addi    t2, t2, -1
     jal     x0, .Lbf16_mul_asm_b_shift
-.Lbf16_mul_asm_b_normal:
-    ori     t4, t4, 128
+.Lbf16_mul_asm_b_strip:
+    andi    t4, t4, 127
 .Lbf16_mul_asm_b_done:
 
     # Exponent: the sum counts the bias twice, so remove one.
     add     t1, t1, t2
     addi    t1, t1, -127
 
-    # Significand product by shift-and-add over the bits of t4.
-    addi    t2, x0, 0
+    # Product: the leading one of b gives a << 7. The fraction bits of b
+    # are added by shift-and-add, which stops once no set bit is left.
+    slli    t2, t3, 7
+    beq     t4, x0, .Lbf16_mul_asm_norm
 .Lbf16_mul_asm_mul_loop:
     andi    t6, t4, 1
     beq     t6, x0, .Lbf16_mul_asm_mul_skip
@@ -116,6 +119,7 @@ bf16_mul_asm:
     bne     t4, x0, .Lbf16_mul_asm_mul_loop
 
     # The product lies in [2^14, 2^16): keep 8 bits and truncate the rest.
+.Lbf16_mul_asm_norm:
     srli    t6, t2, 15
     beq     t6, x0, .Lbf16_mul_asm_shift7
     srli    t2, t2, 8
