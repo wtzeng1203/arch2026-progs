@@ -356,6 +356,9 @@ rubik_solve_asm:
     # .Lrubik_find: binary search of rank(a0, a1) << 4 in table a3 of a4
     # words. a5 = the low 4 bits of the match, or -1.
     # rank = p * 729 + o, 729 = 512 + 128 + 64 + 16 + 8 + 1.
+    # lo (t2) and hi (t3) are addresses, so the middle word is found with
+    # one mask instead of a shift and an add, and the loop test sits at
+    # the bottom of each path.
 .Lrubik_find:
     add     t1, a0, a1
     slli    t0, a0, 3
@@ -369,27 +372,26 @@ rubik_solve_asm:
     slli    t0, a0, 9
     add     t1, t1, t0
     slli    t1, t1, 4
-    addi    t2, x0, 0
-    addi    t3, a4, 0
+    addi    t2, a3, 0
+    slli    t3, a4, 2
+    add     t3, a3, t3
+    addi    t6, t3, 0
 .Lrubik_find_loop:
-    bgeu    t2, t3, .Lrubik_find_check
     add     t4, t2, t3
     srli    t4, t4, 1
-    slli    t5, t4, 2
-    add     t5, a3, t5
-    lw      t5, 0(t5)
+    andi    t4, t4, -4
+    lw      t5, 0(t4)
     bgeu    t5, t1, .Lrubik_find_upper
-    addi    t2, t4, 1
-    jal     x0, .Lrubik_find_loop
+    addi    t2, t4, 4
+    bltu    t2, t3, .Lrubik_find_loop
+    jal     x0, .Lrubik_find_check
 .Lrubik_find_upper:
     addi    t3, t4, 0
-    jal     x0, .Lrubik_find_loop
+    bltu    t2, t3, .Lrubik_find_loop
 .Lrubik_find_check:
     addi    a5, x0, -1
-    bgeu    t2, a4, .Lrubik_find_done
-    slli    t5, t2, 2
-    add     t5, a3, t5
-    lw      t5, 0(t5)
+    bgeu    t2, t6, .Lrubik_find_done
+    lw      t5, 0(t2)
     andi    t0, t5, -16
     bne     t0, t1, .Lrubik_find_done
     andi    a5, t5, 15
